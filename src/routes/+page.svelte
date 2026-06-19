@@ -8,13 +8,15 @@
 	import LiveDot from '$lib/components/LiveDot.svelte';
 	import CorridorBadge from '$lib/components/CorridorBadge.svelte';
 	import { network } from '$lib/stores/network.svelte';
+	import { buses } from '$lib/stores/buses.svelte';
+	import { CORRIDOR_IDS } from '$lib/network';
 
 	const planner = getContext<Planner>('planner');
-	const netLabel = $derived(
-		network.loaded
-			? `${network.counts.corridors} koridor · ${network.counts.stops} halte`
-			: 'Data langsung · 6 koridor'
-	);
+	const netLabel = $derived.by(() => {
+		if (buses.live) return `${network.counts.stops || 488} halte · ${buses.count} bus aktif`;
+		if (network.loaded) return `${network.counts.corridors} koridor · ${network.counts.stops} halte`;
+		return 'Menyambungkan data…';
+	});
 
 	function editFrom() {
 		planner.editing = 'from';
@@ -52,7 +54,10 @@
 			<div class="logo"><Icon name="bus" size={18} stroke={2} /></div>
 			<div>
 				<div class="title">Trans Padang</div>
-				<div class="sub"><LiveDot size={6} /> {netLabel}</div>
+				<div class="sub">
+					<LiveDot size={6} color={buses.live ? 'var(--green)' : 'var(--t-400)'} />
+					{netLabel}
+				</div>
 			</div>
 		</div>
 		<button class="avatar" aria-label="Profil"><Icon name="person" size={18} /></button>
@@ -106,6 +111,24 @@
 					<span class="chip-name">{s.name}</span>
 				</span>
 			</button>
+		{/each}
+	</div>
+
+	<!-- armada langsung (live bus per koridor) -->
+	<div class="section-head">
+		<span class="section-title">Armada langsung</span>
+		<span class="live-tag" class:off={!buses.live}>
+			<LiveDot size={6} color={buses.live ? 'var(--green)' : 'var(--t-400)'} />
+			{buses.live ? 'Live' : 'Off'}
+		</span>
+	</div>
+	<div class="fleet">
+		{#each CORRIDOR_IDS as id (id)}
+			<div class="fleet-chip">
+				<CorridorBadge corridor={id} size="xs" />
+				<span class="fleet-count tpnum">{buses.countByCorridor[id] ?? 0}</span>
+				<span class="fleet-unit">bus</span>
+			</div>
 		{/each}
 	</div>
 
@@ -385,6 +408,38 @@
 		font-size: 11.5px;
 		font-weight: 700;
 		color: var(--green);
+	}
+	.live-tag.off {
+		color: var(--t-400);
+	}
+
+	/* armada langsung */
+	.fleet {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+	.fleet-chip {
+		flex: 1 1 calc(33.333% - 8px);
+		min-width: 0;
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		background: #fff;
+		border: 1px solid var(--b-1);
+		border-radius: 13px;
+		padding: 10px 12px;
+	}
+	.fleet-count {
+		font-size: 16px;
+		font-weight: 700;
+		color: var(--t-900);
+		margin-left: auto;
+	}
+	.fleet-unit {
+		font-size: 11px;
+		font-weight: 600;
+		color: var(--t-500);
 	}
 
 	/* nearby stop card */
