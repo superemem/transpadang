@@ -26,13 +26,11 @@
 	});
 
 	function berangkat() {
-		planner.from = stopName;
-		planner.editing = 'to';
+		planner.useStopAs('from', stopName);
 		goto('/search');
 	}
 	function tujuan() {
-		planner.to = stopName;
-		planner.editing = 'from';
+		planner.useStopAs('to', stopName);
 		goto('/search');
 	}
 </script>

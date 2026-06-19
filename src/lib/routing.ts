@@ -1,13 +1,21 @@
-// Trans Padang — routing engine sederhana dari halte asli.
-// Hasil: opsi rute (direct / 1x transfer) dengan SHAPE yang sama kayak mock
-// planTrips, jadi UI gak berubah. REAL: koridor, halte, urutan, jarak/estimasi
-// waktu tempuh. SIMULASI: occupancy, kode bus, waktu tunggu (ETA live ada di
-// trip detail via predict).
-import type { Network, Corridor } from '$lib/network';
-import { cumulativeDist } from '$lib/geo';
+// Trans Padang — routing engine dari titik (koordinat) ke titik, gaya Moovit.
+// Input: Endpoint {name, lat, lon} (halte, GPS, atau POI hasil geocode).
+// Pertimbangkan BEBERAPA halte terdekat di asal & tujuan (bukan cuma 1) biar
+// nemu rute walau halte paling deket gak nyambung. Output: jalan kaki → bus
+// (direct/1x transfer) → jalan kaki. REAL: halte, koridor, urutan, jarak, transit,
+// jalan kaki. SIMULASI: occupancy, kode bus, waktu tunggu.
+import type { Network, Corridor, Stop } from '$lib/network';
+import { cumulativeDist, haversine } from '$lib/geo';
 
-const SPEED_KMH = 20; // estimasi kecepatan tempuh termasuk berhenti
+const SPEED_KMH = 20; // estimasi kecepatan bus termasuk berhenti
+const WALK_M_PER_MIN = 80; // kecepatan jalan kaki
+const NEAR_K = 6; // jumlah halte kandidat per ujung (biar nemu koridor yg pas, bukan cuma yg paling deket)
 
+export interface Endpoint {
+	name: string;
+	lat: number;
+	lon: number;
+}
 export interface WalkLeg {
 	type: 'walk';
 	min: number;
@@ -53,10 +61,22 @@ export interface TripOption {
 const corr = (net: Network, id: string) => net.corridors.find((c) => c.id === id);
 const idxOn = (c: Corridor, name: string) => c.stops.findIndex((s) => s.name === name);
 
+/** Top-K halte unik (by nama) terdekat dari sebuah titik. */
+function nearestUnique(net: Network, lat: number, lon: number, k: number) {
+	const seen = new Set<string>();
+	const arr: { stop: Stop; distM: number }[] = [];
+	for (const s of net.stops) {
+		if (seen.has(s.name)) continue;
+		seen.add(s.name);
+		arr.push({ stop: s, distM: Math.round(haversine(lat, lon, s.lat, s.lon) * 1000) });
+	}
+	arr.sort((a, b) => a.distM - b.distM);
+	return arr.slice(0, k);
+}
+
 function rideMin(c: Corridor, i: number, j: number): number {
 	const cum = cumulativeDist(c.stops);
-	const km = Math.abs(cum[i] - cum[j]);
-	return Math.max(1, Math.round((km / SPEED_KMH) * 60));
+	return Math.max(1, Math.round((Math.abs(cum[i] - cum[j]) / SPEED_KMH) * 60));
 }
 function headFor(c: Corridor, i: number, j: number): string {
 	return c.stops[j > i ? c.stops.length - 1 : 0].name;
@@ -88,7 +108,10 @@ function busLeg(c: Corridor, i: number, j: number, wait: number): BusLeg {
 		midStops: midOf(c, i, j)
 	};
 }
-
+function walkLeg(aLat: number, aLon: number, bLat: number, bLon: number, label: string): WalkLeg {
+	const meters = Math.round(haversine(aLat, aLon, bLat, bLon) * 1000);
+	return { type: 'walk', min: Math.max(1, Math.round(meters / WALK_M_PER_MIN)), meters, toLabel: label };
+}
 function hhmm(d: Date): string {
 	return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
@@ -100,28 +123,23 @@ interface Cand {
 	transfers: number;
 }
 
-export function planTripsReal(net: Network, fromName: string, toName: string): TripOption[] {
-	const fromP = net.places.find((p) => p.name === fromName);
-	const toP = net.places.find((p) => p.name === toName);
-	if (!fromP || !toP) return [];
-
+/** Kandidat rute (direct + 1x transfer) antara dua halte. */
+function genCands(net: Network, oName: string, dName: string, oLines: string[], dLines: string[]): Cand[] {
 	const cands: Cand[] = [];
-
-	// direct — koridor yang sama-sama lewat asal & tujuan
-	for (const cid of fromP.lines) {
-		if (!toP.lines.includes(cid)) continue;
+	// direct
+	for (const cid of oLines) {
+		if (!dLines.includes(cid)) continue;
 		const c = corr(net, cid);
 		if (!c) continue;
-		const i = idxOn(c, fromName);
-		const j = idxOn(c, toName);
+		const i = idxOn(c, oName);
+		const j = idxOn(c, dName);
 		if (i < 0 || j < 0 || i === j) continue;
 		const leg = busLeg(c, i, j, 4);
 		cands.push({ busLegs: [leg], mid: [leg], rideTotal: leg.rideMin, transfers: 0 });
 	}
-
-	// 1x transfer — cari halte yang ada di koridor asal & koridor tujuan
-	for (const cf of fromP.lines) {
-		for (const ct of toP.lines) {
+	// 1x transfer
+	for (const cf of oLines) {
+		for (const ct of dLines) {
 			if (cf === ct) continue;
 			const cF = corr(net, cf);
 			const cT = corr(net, ct);
@@ -130,56 +148,85 @@ export function planTripsReal(net: Network, fromName: string, toName: string): T
 			let best: Cand | null = null;
 			for (const s of cF.stops) {
 				if (!namesT.has(s.name)) continue;
-				const i = idxOn(cF, fromName);
+				const i = idxOn(cF, oName);
 				const x1 = idxOn(cF, s.name);
 				const x2 = idxOn(cT, s.name);
-				const j = idxOn(cT, toName);
-				if (i < 0 || x1 < 0 || x2 < 0 || j < 0) continue;
-				if (i === x1 || x2 === j) continue;
+				const j = idxOn(cT, dName);
+				if (i < 0 || x1 < 0 || x2 < 0 || j < 0 || i === x1 || x2 === j) continue;
 				const l1 = busLeg(cF, i, x1, 4);
 				const l2 = busLeg(cT, x2, j, 3);
 				const total = l1.rideMin + l2.rideMin;
 				if (!best || total < best.rideTotal) {
-					const transfer: TransferLeg = {
-						type: 'transfer',
-						min: 2,
-						atStop: s.name,
-						note: `Pindah ke ${ct}`
-					};
+					const transfer: TransferLeg = { type: 'transfer', min: 2, atStop: s.name, note: `Pindah ke ${ct}` };
 					best = { busLegs: [l1, l2], mid: [l1, transfer, l2], rideTotal: total, transfers: 1 };
 				}
 			}
 			if (best) cands.push(best);
 		}
 	}
+	return cands;
+}
 
-	if (!cands.length) return [];
+export function planTripsReal(net: Network, from: Endpoint, to: Endpoint): TripOption[] {
+	const oCands = nearestUnique(net, from.lat, from.lon, NEAR_K);
+	const dCands = nearestUnique(net, to.lat, to.lon, NEAR_K);
 
-	// urutkan: ride + penalti transfer, lalu pilih sampai 3 yang variatif
-	cands.sort((a, b) => a.rideTotal + a.transfers * 4 - (b.rideTotal + b.transfers * 4));
-	const chosen: Cand[] = [];
-	const keyOf = (c: Cand) => c.busLegs.map((l) => l.corridor).join('>');
-	for (const c of cands) {
+	interface Scored {
+		c: Cand;
+		oStop: Stop;
+		dStop: Stop;
+		walkInMin: number;
+		walkOutMin: number;
+		score: number;
+	}
+	const scored: Scored[] = [];
+
+	for (const o of oCands) {
+		const oP = net.places.find((p) => p.name === o.stop.name);
+		if (!oP) continue;
+		for (const d of dCands) {
+			if (o.stop.name === d.stop.name) continue;
+			const dP = net.places.find((p) => p.name === d.stop.name);
+			if (!dP) continue;
+			const walkInMin = Math.max(1, Math.round(o.distM / WALK_M_PER_MIN));
+			const walkOutMin = Math.max(1, Math.round(d.distM / WALK_M_PER_MIN));
+			for (const c of genCands(net, o.stop.name, d.stop.name, oP.lines, dP.lines)) {
+				scored.push({
+					c,
+					oStop: o.stop,
+					dStop: d.stop,
+					walkInMin,
+					walkOutMin,
+					score: c.rideTotal + c.transfers * 4 + walkInMin + walkOutMin
+				});
+			}
+		}
+	}
+
+	if (!scored.length) return [];
+	scored.sort((a, b) => a.score - b.score);
+
+	// pilih sampai 3 yang variatif (signature beda)
+	const chosen: Scored[] = [];
+	const keyOf = (x: Scored) =>
+		x.oStop.name + '|' + x.c.busLegs.map((l) => l.corridor).join('>') + '|' + x.dStop.name;
+	for (const x of scored) {
 		if (chosen.length >= 3) break;
-		if (chosen.some((x) => keyOf(x) === keyOf(c))) continue;
-		chosen.push(c);
+		if (chosen.some((y) => keyOf(y) === keyOf(x))) continue;
+		chosen.push(x);
 	}
 
 	const now = new Date();
-	return chosen.map((c, idx) => {
-		const walkIn = 2;
-		const walkOut = 1 + idx;
-		const walkMin = walkIn + walkOut;
-		const totalMin = c.rideTotal + walkMin + c.transfers * 2 + 4;
+	return chosen.map((x, idx) => {
+		const walkIn = walkLeg(from.lat, from.lon, x.oStop.lat, x.oStop.lon, 'Halte ' + x.oStop.name);
+		const walkOut = walkLeg(x.dStop.lat, x.dStop.lon, to.lat, to.lon, to.name);
+		const walkMin = walkIn.min + walkOut.min;
+		const totalMin = x.c.rideTotal + walkMin + x.c.transfers * 2 + 4;
 		const departIn = 3 + idx * 3;
 		const depart = new Date(now.getTime() + departIn * 60000);
 		const arrive = new Date(depart.getTime() + totalMin * 60000);
-		const legs: Leg[] = [
-			{ type: 'walk', min: walkIn, meters: 160, toLabel: 'Halte ' + c.busLegs[0].boardStop },
-			...c.mid,
-			{ type: 'walk', min: walkOut, meters: 120 + idx * 60, toLabel: 'Tujuan' }
-		];
-		const tag = idx === 0 ? 'Tercepat' : c.transfers === 0 ? 'Tanpa transit' : 'Alternatif';
+		const legs: Leg[] = [walkIn, ...x.c.mid, walkOut];
+		const tag = idx === 0 ? 'Tercepat' : x.c.transfers === 0 ? 'Tanpa transit' : 'Alternatif';
 		return {
 			id: String.fromCharCode(97 + idx),
 			tag,
@@ -189,7 +236,7 @@ export function planTripsReal(net: Network, fromName: string, toName: string): T
 			departTime: hhmm(depart),
 			arriveTime: hhmm(arrive),
 			walkMin,
-			transfers: c.transfers,
+			transfers: x.c.transfers,
 			legs
 		};
 	});

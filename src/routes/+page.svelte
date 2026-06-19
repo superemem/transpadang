@@ -49,20 +49,23 @@
 		}
 	}
 	async function planSaved(name: string) {
-		planner.to = name;
-		if (planner.from) {
-			planner.plan(planner.from, name);
-			goto('/results');
-			return;
-		}
 		if (locating) return;
 		locating = true;
-		const res = await planner.pickCurrentLocation('from'); // tujuan udah diset → bakal 'plan'
+		const dest = await planner.resolvePlace(name);
+		if (!dest) {
+			locating = false;
+			planner.editing = 'to';
+			goto('/search');
+			return;
+		}
+		const res = await planner.planTo(dest);
 		locating = false;
 		if (res === 'plan') goto('/results');
-		else {
+		else if (res === 'need-origin') {
 			planner.editing = 'from';
 			goto('/search');
+		} else {
+			goto('/results'); // rute gak ketemu → results nampilin state jujur
 		}
 	}
 	function openStop(name: string) {
@@ -178,6 +181,8 @@
 				</div>
 			{/each}
 		</button>
+	{:else}
+		<div class="near-empty">{network.loaded ? 'Mencari halte terdekat…' : 'Memuat data…'}</div>
 	{/each}
 
 	<div class="foot-space"></div>
@@ -529,6 +534,14 @@
 		font-size: 15px;
 		font-weight: 700;
 		flex: 0 0 auto;
+	}
+
+	.near-empty {
+		padding: 20px 4px;
+		text-align: center;
+		font-size: 13px;
+		font-weight: 600;
+		color: var(--t-500);
 	}
 
 	.foot-space {

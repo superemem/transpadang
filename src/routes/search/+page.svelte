@@ -2,20 +2,44 @@
 	import { getContext } from 'svelte';
 	import { goto } from '$app/navigation';
 	import type { Planner } from '$lib/stores/planner.svelte';
-	import { RECENTS } from '$lib/data.js';
 	import Icon from '$lib/components/Icon.svelte';
 	import CorridorBadge from '$lib/components/CorridorBadge.svelte';
 
 	const planner = getContext<Planner>('planner');
 
+	let locating = $state(false);
+	let geoResults = $state<{ name: string; sub: string; lat: number; lon: number }[]>([]);
+	let geoLoading = $state(false);
+	let timer: ReturnType<typeof setTimeout>;
+
+	// geocode tempat di Padang (debounced)
+	$effect(() => {
+		const q = planner.query.trim();
+		clearTimeout(timer);
+		if (q.length < 3) {
+			geoResults = [];
+			geoLoading = false;
+			return;
+		}
+		geoLoading = true;
+		timer = setTimeout(async () => {
+			try {
+				const res = await fetch('/api/geocode?q=' + encodeURIComponent(q));
+				const d = await res.json();
+				geoResults = d.results ?? [];
+			} catch {
+				geoResults = [];
+			}
+			geoLoading = false;
+		}, 350);
+		return () => clearTimeout(timer);
+	});
+
 	function focus(node: HTMLInputElement) {
 		node.focus();
 	}
-
-	let locating = $state(false);
-
-	function pick(name: string) {
-		const action = planner.selectPlace(name);
+	function pick(ep: { name: string; lat: number; lon: number }) {
+		const action = planner.selectPlace({ name: ep.name, lat: ep.lat, lon: ep.lon });
 		if (action === 'plan') goto('/results');
 	}
 	async function useLoc() {
@@ -24,15 +48,12 @@
 		const res = await planner.pickCurrentLocation(planner.editing);
 		locating = false;
 		if (res === 'plan') goto('/results');
-		// 'switch' → tetap di Search (field satunya jadi aktif); 'fail' → diem
 	}
 	function switchField(f: 'from' | 'to') {
 		if (planner.editing === f) return;
 		planner.editing = f;
 		planner.query = '';
 	}
-
-	const iconFor = (type: string) => (type === 'hub' ? 'transfer' : 'shelter');
 </script>
 
 <div class="screen">
@@ -40,9 +61,7 @@
 		<button class="back tp-tap" onclick={() => history.back()} aria-label="Kembali">
 			<Icon name="chevron-left" size={20} stroke={2} />
 		</button>
-
 		<div class="fields">
-			<!-- FROM -->
 			<div class="field" class:active={planner.editing === 'from'}>
 				<span class="dot-from"></span>
 				{#if planner.editing === 'from'}
@@ -53,7 +72,6 @@
 					</button>
 				{/if}
 			</div>
-			<!-- TO -->
 			<div class="field" class:active={planner.editing === 'to'}>
 				<span class="sq-to"></span>
 				{#if planner.editing === 'to'}
@@ -69,7 +87,6 @@
 
 	<div class="bd">
 		{#if planner.query.trim() === ''}
-			<!-- empty state: lokasi saya + recents -->
 			<button class="row tp-tap" onclick={useLoc} disabled={locating}>
 				<span class="tile mint"><Icon name="gps" size={17} /></span>
 				<span class="row-text">
@@ -77,34 +94,50 @@
 				</span>
 			</button>
 
-			<div class="cap">TERAKHIR DICARI</div>
-			{#each RECENTS as r (r.name)}
-				<button class="row tp-tap" onclick={() => pick(r.name)}>
-					<span class="tile"><Icon name="clock" size={16} /></span>
-					<span class="row-text">
-						<span class="row-name">{r.name}</span>
-						<span class="row-sub">{r.sub}</span>
-					</span>
-				</button>
-			{/each}
+			{#if planner.recents.length}
+				<div class="cap">TERAKHIR DICARI</div>
+				{#each planner.recents as r (r.name)}
+					<button class="row tp-tap" onclick={() => pick(r)}>
+						<span class="tile"><Icon name="clock" size={16} /></span>
+						<span class="row-text"><span class="row-name">{r.name}</span></span>
+					</button>
+				{/each}
+			{/if}
 		{:else}
-			<!-- filtered results dari halte asli -->
-			{#each planner.results as p (p.name)}
-				<button class="row tp-tap" onclick={() => pick(p.name)}>
-					<span class="tile" class:mint={p.type === 'hub'}>
-						<Icon name={iconFor(p.type)} size={17} />
-					</span>
-					<span class="row-text">
-						<span class="row-name">{p.name}</span>
-						<span class="row-sub">{p.sub}</span>
-					</span>
-					<span class="badges">
-						{#each p.lines as l (l)}<CorridorBadge corridor={l} size="xs" />{/each}
-					</span>
-				</button>
-			{:else}
-				<div class="empty">Halte "{planner.query}" gak ketemu.</div>
-			{/each}
+			{#if planner.results.length}
+				<div class="cap">HALTE</div>
+				{#each planner.results as p (p.name)}
+					<button class="row tp-tap" onclick={() => pick(p)}>
+						<span class="tile mint"><Icon name="shelter" size={17} /></span>
+						<span class="row-text">
+							<span class="row-name">{p.name}</span>
+							<span class="row-sub">{p.sub}</span>
+						</span>
+						<span class="badges">
+							{#each p.lines as l (l)}<CorridorBadge corridor={l} size="xs" />{/each}
+						</span>
+					</button>
+				{/each}
+			{/if}
+
+			{#if geoResults.length}
+				<div class="cap">TEMPAT DI PADANG</div>
+				{#each geoResults as r (r.name + r.lat)}
+					<button class="row tp-tap" onclick={() => pick(r)}>
+						<span class="tile"><Icon name="map-pin" size={17} /></span>
+						<span class="row-text">
+							<span class="row-name">{r.name}</span>
+							<span class="row-sub">{r.sub || 'Padang'}</span>
+						</span>
+					</button>
+				{/each}
+			{/if}
+
+			{#if geoLoading && !geoResults.length && !planner.results.length}
+				<div class="empty">Mencari…</div>
+			{:else if !planner.results.length && !geoResults.length && !geoLoading}
+				<div class="empty">"{planner.query}" gak ketemu. Coba kata lain.</div>
+			{/if}
 		{/if}
 	</div>
 </div>

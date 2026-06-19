@@ -65,7 +65,13 @@
 				</div>
 			</button>
 		{:else}
-			<div class="empty">Belum ada rute. Pilih asal & tujuan dulu.</div>
+			<div class="empty">
+				{#if planner.from && planner.to}
+					Rute dari "{planner.from}" ke "{planner.to}" belum ketemu. Coba tujuan lain.
+				{:else}
+					Pilih asal & tujuan dulu.
+				{/if}
+			</div>
 		{/each}
 	</div>
 </div>
