@@ -1,6 +1,7 @@
 // Trans Padang — planner store (Svelte 5 runes class, handoff §7)
 // Provide via setContext('planner', new Planner()) di +layout.svelte.
 import { PLACES, NEARBY, planTrips, corridorById } from '$lib/data.js';
+import { network } from '$lib/stores/network.svelte';
 import { rerollSec } from '$lib/format';
 
 type Editing = 'from' | 'to';
@@ -44,7 +45,9 @@ export class Planner {
 	results = $derived.by(() => {
 		const q = this.query.trim().toLowerCase();
 		if (!q) return [];
-		return PLACES.filter((p) => `${p.name} ${p.sub ?? ''}`.toLowerCase().includes(q));
+		// pakai halte asli kalau udah ke-load, fallback ke mock
+		const src = network.places.length ? network.places : PLACES;
+		return src.filter((p) => `${p.name} ${p.sub ?? ''}`.toLowerCase().includes(q)).slice(0, 40);
 	});
 
 	constructor() {

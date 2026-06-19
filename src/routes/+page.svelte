@@ -7,8 +7,14 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import LiveDot from '$lib/components/LiveDot.svelte';
 	import CorridorBadge from '$lib/components/CorridorBadge.svelte';
+	import { network } from '$lib/stores/network.svelte';
 
 	const planner = getContext<Planner>('planner');
+	const netLabel = $derived(
+		network.loaded
+			? `${network.counts.corridors} koridor · ${network.counts.stops} halte`
+			: 'Data langsung · 6 koridor'
+	);
 
 	function editFrom() {
 		planner.editing = 'from';
@@ -46,7 +52,7 @@
 			<div class="logo"><Icon name="bus" size={18} stroke={2} /></div>
 			<div>
 				<div class="title">Trans Padang</div>
-				<div class="sub"><LiveDot size={6} /> Data langsung · 6 koridor</div>
+				<div class="sub"><LiveDot size={6} /> {netLabel}</div>
 			</div>
 		</div>
 		<button class="avatar" aria-label="Profil"><Icon name="person" size={18} /></button>

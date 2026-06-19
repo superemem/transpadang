@@ -3,9 +3,15 @@
 	import { setContext } from 'svelte';
 	import favicon from '$lib/assets/favicon.svg';
 	import { Planner } from '$lib/stores/planner.svelte';
+	import { network } from '$lib/stores/network.svelte';
 	import PhoneFrame from '$lib/components/PhoneFrame.svelte';
 
-	let { children } = $props();
+	let { children, data } = $props();
+
+	// data halte asli (dari /api/stops via layout load) → network store
+	$effect(() => {
+		network.set(data?.network ?? null);
+	});
 
 	// satu planner store dibagi ke semua route via context
 	const planner = new Planner();
