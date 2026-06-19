@@ -1,15 +1,40 @@
 <script lang="ts">
 	import { getContext } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { Planner } from '$lib/stores/planner.svelte';
+	import { buses } from '$lib/stores/buses.svelte';
 	import { etaText, etaColor } from '$lib/format';
 	import Icon from '$lib/components/Icon.svelte';
 	import LiveDot from '$lib/components/LiveDot.svelte';
 	import CorridorBadge from '$lib/components/CorridorBadge.svelte';
+	import OccupancyDots from '$lib/components/OccupancyDots.svelte';
 
 	const planner = getContext<Planner>('planner');
 	const stopName = $derived(planner.boardStop || decodeURIComponent(page.params.name ?? ''));
 	const sorted = $derived([...planner.board].sort((a, b) => a.sec - b.sec));
+	const koridorCount = $derived(new Set(planner.board.map((b) => b.corridor)).size);
+
+	// pastikan board ke-load buat halte ini, dan refresh tiap data bus update
+	$effect(() => {
+		const target = decodeURIComponent(page.params.name ?? '');
+		if (target && planner.boardStop !== target) planner.openStop(target);
+	});
+	$effect(() => {
+		buses.updateCount; // dependency
+		planner.refreshBoard();
+	});
+
+	function berangkat() {
+		planner.from = stopName;
+		planner.editing = 'to';
+		goto('/search');
+	}
+	function tujuan() {
+		planner.to = stopName;
+		planner.editing = 'from';
+		goto('/search');
+	}
 </script>
 
 <div class="screen">
@@ -19,10 +44,23 @@
 		</button>
 		<div class="sum">
 			<div class="ttl">{stopName}</div>
-			<div class="sub">Halte · {planner.board.length} jadwal</div>
+			<div class="subline">Halte · {koridorCount} koridor · {planner.board.length} jadwal</div>
 		</div>
-		<span class="live-tag"><LiveDot size={6} /> Live</span>
+		<span class="live-tag" class:off={!buses.live}>
+			<LiveDot size={6} color={buses.live ? 'var(--green)' : 'var(--t-400)'} />
+			{buses.live ? 'Live' : 'Off'}
+		</span>
 	</header>
+
+	<div class="actions">
+		<button class="act go tp-tap" onclick={berangkat}>
+			<span class="dot-from"></span> Berangkat dari sini
+		</button>
+		<button class="act to tp-tap" onclick={tujuan}>
+			<span class="sq-to"></span> Tujuan ke sini
+		</button>
+	</div>
+
 	<div class="bd">
 		<div class="label">KEDATANGAN BERIKUTNYA</div>
 		{#each sorted as a (a.headsign + a.bus)}
@@ -30,12 +68,17 @@
 				<CorridorBadge corridor={a.corridor} size="lg" />
 				<div class="arr-mid">
 					<div class="arr-head">{a.headsign}</div>
-					<div class="arr-meta">Bus {a.bus}</div>
+					<div class="arr-meta">
+						<span>Bus {a.bus}</span>
+						<OccupancyDots occ={a.occ} layout="row" w={4} h={9} />
+					</div>
 				</div>
-				<div class="arr-eta tpnum" style="color:{etaColor(a.sec)};">{etaText(a.sec, true)}</div>
+				<div class="arr-eta tpnum" style="color:{etaColor(a.sec)};">
+					{etaText(a.sec, true)}
+				</div>
 			</div>
 		{:else}
-			<div class="wip">Buka halte ini dari Home buat lihat live arrivals.</div>
+			<div class="empty">Belum ada bus menuju halte ini terdeteksi.</div>
 		{/each}
 	</div>
 </div>
@@ -78,7 +121,7 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
-	.sub {
+	.subline {
 		font-size: 12px;
 		font-weight: 600;
 		color: var(--t-500);
@@ -92,10 +135,56 @@
 		color: var(--green);
 		flex: 0 0 auto;
 	}
+	.live-tag.off {
+		color: var(--t-400);
+	}
+
+	.actions {
+		display: flex;
+		gap: 10px;
+		padding: 14px 16px 6px;
+	}
+	.act {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		padding: 12px;
+		border-radius: 13px;
+		font-size: 13px;
+		font-weight: 700;
+		cursor: pointer;
+	}
+	.act.go {
+		background: var(--mint);
+		border: 1.5px solid var(--b-rec);
+		color: var(--green-dark);
+	}
+	.act.to {
+		background: #fff;
+		border: 1.5px solid var(--b-1);
+		color: var(--t-900);
+	}
+	.dot-from {
+		width: 11px;
+		height: 11px;
+		border-radius: 50%;
+		border: 3px solid var(--green);
+		flex: 0 0 auto;
+	}
+	.sq-to {
+		width: 11px;
+		height: 11px;
+		border-radius: 3px;
+		background: var(--t-900);
+		flex: 0 0 auto;
+	}
+
 	.bd {
 		flex: 1;
 		overflow-y: auto;
-		padding: 14px 16px 24px;
+		padding: 8px 16px 24px;
 	}
 	.label {
 		font-size: 11px;
@@ -128,23 +217,24 @@
 		text-overflow: ellipsis;
 	}
 	.arr-meta {
+		display: flex;
+		align-items: center;
+		gap: 9px;
 		font-size: 11.5px;
 		font-weight: 600;
 		color: var(--t-500);
-		margin-top: 2px;
+		margin-top: 3px;
 	}
 	.arr-eta {
 		font-size: 22px;
 		font-weight: 700;
 		flex: 0 0 auto;
 	}
-	.wip {
-		background: #fff;
-		border: 1px solid var(--b-1);
-		border-radius: 16px;
-		padding: 18px;
+	.empty {
+		padding: 28px 12px;
+		text-align: center;
 		font-size: 13px;
 		font-weight: 600;
-		color: var(--t-600);
+		color: var(--t-500);
 	}
 </style>

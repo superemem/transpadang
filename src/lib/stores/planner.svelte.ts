@@ -2,9 +2,18 @@
 // Provide via setContext('planner', new Planner()) di +layout.svelte.
 import { PLACES, NEARBY, planTrips, corridorById } from '$lib/data.js';
 import { network } from '$lib/stores/network.svelte';
+import { buses } from '$lib/stores/buses.svelte';
+import { planTripsReal } from '$lib/routing';
+import { boardFor, nearbyFor } from '$lib/predict';
+import type { Network } from '$lib/network';
 import { rerollSec } from '$lib/format';
 
 type Editing = 'from' | 'to';
+
+// lokasi default "user" (sekitar Khatib Sulaiman, pusat Padang) — nanti diganti geolocation
+const USER = { lat: -0.9171, lon: 100.3614 };
+
+const asNetwork = () => network as unknown as Network;
 
 interface Arrival {
 	corridor: string;
@@ -54,7 +63,7 @@ export class Planner {
 		this.seedNearby();
 	}
 
-	/** Seed nearby deterministik (eta menit → detik) biar SSR/hydration match. */
+	/** Seed nearby mock deterministik (buat SSR / sebelum data real masuk). */
 	seedNearby() {
 		this.nearby = NEARBY.map((s) => ({
 			name: s.name,
@@ -70,11 +79,33 @@ export class Planner {
 		}));
 	}
 
-	/** Hitung opsi rute dari A ke B. */
+	/** Halte terdekat real (dari posisi user) + kedatangan live. Dipanggil saat data update. */
+	refreshNearby() {
+		if (!network.loaded) return;
+		const ns = nearbyFor(asNetwork(), buses.list, USER.lat, USER.lon, 2);
+		if (!ns.length) return;
+		this.nearby = ns.map((s) => ({
+			name: s.name,
+			dist: s.distM,
+			walk: Math.max(1, Math.round(s.distM / 80)),
+			arrivals: s.arrivals.map((a) => ({
+				corridor: a.corridor,
+				headsign: a.headsign,
+				occ: a.occ,
+				bus: a.bus,
+				sec: a.etaSec
+			}))
+		}));
+	}
+
+	/** Hitung opsi rute dari A ke B (routing engine real, fallback mock). */
 	plan(from: string, to: string) {
 		this.from = from;
 		this.to = to;
-		this.options = planTrips(from, to);
+		let opts: any[] = [];
+		if (network.loaded) opts = planTripsReal(asNetwork(), from, to);
+		if (!opts.length) opts = planTrips(from, to);
+		this.options = opts;
 		this.optionId = null;
 	}
 
@@ -98,20 +129,48 @@ export class Planner {
 		if (this.from && this.to) this.plan(this.from, this.to);
 	}
 
-	/** Pilih opsi rute → siapin trip detail. */
+	/** Pilih opsi rute → siapin trip detail (seed boarding ETA dari prediksi live). */
 	selectOption(id: string) {
 		this.optionId = id;
 		this.started = false;
 		this.expanded = {};
-		// seed boarding ETA dari waitMin bus pertama (kalau ada)
 		const opt = this.options.find((o) => o.id === id);
 		const firstBus = opt?.legs?.find((l: any) => l.type === 'bus');
-		this.busEtaSec = (firstBus?.waitMin ?? 3) * 60;
+		let seed = (firstBus?.waitMin ?? 3) * 60;
+		if (network.loaded && firstBus) {
+			const arr = boardFor(asNetwork(), buses.list, firstBus.boardStop).filter(
+				(a) => a.corridor === firstBus.corridor
+			);
+			if (arr.length) seed = arr[0].etaSec;
+		}
+		this.busEtaSec = seed;
 	}
 
-	/** Buka stop board → bikin arrivals dari koridor yang lewat halte itu. */
+	/** Buka stop board. */
 	openStop(name: string) {
 		this.boardStop = name;
+		this.refreshBoard();
+	}
+
+	/** Papan kedatangan real dari bus live; fallback mock kalau data belum ada. */
+	refreshBoard() {
+		if (network.loaded && this.boardStop) {
+			const arr = boardFor(asNetwork(), buses.list, this.boardStop);
+			if (arr.length) {
+				this.board = arr.map((a) => ({
+					corridor: a.corridor,
+					headsign: a.headsign,
+					occ: a.occ,
+					bus: a.bus,
+					sec: a.etaSec
+				}));
+				return;
+			}
+		}
+		this.board = this.#mockBoard(this.boardStop);
+	}
+
+	#mockBoard(name: string): Arrival[] {
 		const place = PLACES.find((p) => p.name === name);
 		const lines: string[] = place?.lines ?? [];
 		const board: Arrival[] = [];
@@ -130,7 +189,7 @@ export class Planner {
 				stagger += 2;
 			}
 		}
-		this.board = board;
+		return board;
 	}
 
 	/** Tick 1 detik: turunin semua countdown, reset yang udah lewat. */

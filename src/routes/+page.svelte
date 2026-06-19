@@ -18,6 +18,13 @@
 		return 'Menyambungkan data…';
 	});
 
+	// halte terdekat real + refresh tiap data bus update
+	$effect(() => {
+		network.loaded;
+		buses.updateCount;
+		planner.refreshNearby();
+	});
+
 	function editFrom() {
 		planner.editing = 'from';
 		goto('/search');
