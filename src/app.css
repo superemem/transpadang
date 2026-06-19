@@ -1,0 +1,137 @@
+@import 'tailwindcss';
+
+/* ============================================================
+   Trans Padang — Design tokens (dari handoff §8/§9)
+   ============================================================ */
+@theme {
+	--font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+	--font-mono: 'Space Grotesk', ui-monospace, monospace;
+
+	/* brand + koridor lines (metro-style) */
+	--color-brand: #0e9f6e;
+	--color-brand-dark: #0b855c;
+	--color-k1: #0e9f6e;
+	--color-k2: #2563eb;
+	--color-k3: #f2790d;
+	--color-k4: #7c3aed;
+	--color-k5: #e11d48;
+	--color-k6: #db2777;
+}
+
+:root {
+	/* surfaces */
+	--backdrop-a: #1c3a2e;
+	--backdrop-b: #0f1512;
+	--canvas: #f1f3f0;
+	--inset: #fafbfa;
+	--white: #ffffff;
+	--mint: #eaf6f0;
+	--transfer: #fff4e6;
+	--field-inactive: #f6f8f5;
+
+	/* brand convenience */
+	--green: #0e9f6e;
+	--green-dark: #0b855c;
+
+	/* text scale */
+	--t-900: #131a17;
+	--t-700: #3d4a43;
+	--t-600: #5c6b62;
+	--t-500: #8a968e;
+	--t-400: #9aa69e;
+	--t-label: #a6b0a8;
+
+	/* borders / lines */
+	--b-1: #eaede8;
+	--b-2: #eef0ec;
+	--b-3: #edefeb;
+	--b-4: #f1f3f0;
+	--b-5: #e6e9e4;
+	--b-6: #d7dcd6;
+	--b-7: #c2c9c1;
+	--b-8: #cdd4cd;
+	--b-rec: #bee7d3;
+
+	/* occupancy */
+	--occ-0: #0e9f6e;
+	--occ-1: #f2790d;
+	--occ-2: #e11d48;
+	--occ-empty: #e6e9e4;
+}
+
+/* ============================================================
+   Global resets + base (dari handoff §9)
+   ============================================================ */
+* {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+html,
+body {
+	height: 100%;
+}
+body {
+	background: var(--backdrop-b);
+	font-family: var(--font-sans);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+/* angka / ETA / jam → Space Grotesk + tabular figures */
+.tpnum {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+}
+
+/* scrollbars disembunyiin */
+::-webkit-scrollbar {
+	width: 0;
+	height: 0;
+}
+
+/* tap feedback global */
+.tp-tap {
+	transition:
+		transform 0.12s,
+		background 0.15s,
+		border-color 0.15s,
+		box-shadow 0.2s;
+	cursor: pointer;
+}
+.tp-tap:active {
+	transform: scale(0.985);
+}
+
+/* ============================================================
+   Keyframes (dari handoff §8/§9)
+   ============================================================ */
+@keyframes tp-live {
+	0%,
+	100% {
+		opacity: 1;
+		transform: scale(1);
+	}
+	50% {
+		opacity: 0.45;
+		transform: scale(0.82);
+	}
+}
+@keyframes tp-bus-move {
+	0% {
+		left: 8%;
+	}
+	100% {
+		left: 88%;
+	}
+}
+@keyframes tp-ping {
+	0% {
+		transform: scale(1);
+		opacity: 0.5;
+	}
+	100% {
+		transform: scale(2.6);
+		opacity: 0;
+	}
+}
