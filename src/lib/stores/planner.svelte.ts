@@ -5,6 +5,8 @@ import { network } from '$lib/stores/network.svelte';
 import { buses } from '$lib/stores/buses.svelte';
 import { planTripsReal } from '$lib/routing';
 import { boardFor, nearbyFor } from '$lib/predict';
+import { haversine } from '$lib/geo';
+import { userLoc } from '$lib/stores/userloc.svelte';
 import type { Network } from '$lib/network';
 import { rerollSec } from '$lib/format';
 
@@ -32,7 +34,7 @@ interface NearbyStop {
 
 export class Planner {
 	// --- trip planning state ---
-	from = $state('Khatib Sulaiman'); // '' artinya belum diset
+	from = $state(''); // '' artinya belum diset
 	to = $state('');
 	editing = $state<Editing>('to'); // field search yang lagi aktif
 	query = $state('');
@@ -82,7 +84,9 @@ export class Planner {
 	/** Halte terdekat real (dari posisi user) + kedatangan live. Dipanggil saat data update. */
 	refreshNearby() {
 		if (!network.loaded) return;
-		const ns = nearbyFor(asNetwork(), buses.list, USER.lat, USER.lon, 2);
+		const lat = userLoc.lat ?? USER.lat;
+		const lon = userLoc.lon ?? USER.lon;
+		const ns = nearbyFor(asNetwork(), buses.list, lat, lon, 2);
 		if (!ns.length) return;
 		this.nearby = ns.map((s) => ({
 			name: s.name,
@@ -127,6 +131,38 @@ export class Planner {
 	swap() {
 		[this.from, this.to] = [this.to, this.from];
 		if (this.from && this.to) this.plan(this.from, this.to);
+	}
+
+	/** Halte asli terdekat dari sebuah koordinat. */
+	#nearestName(lat: number, lon: number): string | null {
+		let best: string | null = null;
+		let bestD = Infinity;
+		for (const s of network.stops) {
+			const d = haversine(lat, lon, s.lat, s.lon);
+			if (d < bestD) {
+				bestD = d;
+				best = s.name;
+			}
+		}
+		return best;
+	}
+
+	/** Pakai GPS → isi field (asal/tujuan) dengan halte asli terdekat. */
+	async pickCurrentLocation(field: Editing): Promise<'plan' | 'switch' | 'fail'> {
+		const pos = await userLoc.request();
+		if (!pos || !network.loaded) return 'fail';
+		const name = this.#nearestName(pos.lat, pos.lon);
+		if (!name) return 'fail';
+		if (field === 'from') this.from = name;
+		else this.to = name;
+		this.refreshNearby();
+		if (this.from && this.to) {
+			this.plan(this.from, this.to);
+			return 'plan';
+		}
+		this.editing = field === 'from' ? 'to' : 'from';
+		this.query = '';
+		return 'switch';
 	}
 
 	/** Pilih opsi rute → siapin trip detail (seed boarding ETA dari prediksi live). */

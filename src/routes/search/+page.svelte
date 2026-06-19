@@ -12,12 +12,19 @@
 		node.focus();
 	}
 
+	let locating = $state(false);
+
 	function pick(name: string) {
 		const action = planner.selectPlace(name);
 		if (action === 'plan') goto('/results');
 	}
-	function useLoc() {
-		pick('Lokasi saya');
+	async function useLoc() {
+		if (locating) return;
+		locating = true;
+		const res = await planner.pickCurrentLocation(planner.editing);
+		locating = false;
+		if (res === 'plan') goto('/results');
+		// 'switch' → tetap di Search (field satunya jadi aktif); 'fail' → diem
 	}
 	function switchField(f: 'from' | 'to') {
 		if (planner.editing === f) return;
@@ -63,9 +70,11 @@
 	<div class="bd">
 		{#if planner.query.trim() === ''}
 			<!-- empty state: lokasi saya + recents -->
-			<button class="row tp-tap" onclick={useLoc}>
+			<button class="row tp-tap" onclick={useLoc} disabled={locating}>
 				<span class="tile mint"><Icon name="gps" size={17} /></span>
-				<span class="row-text"><span class="row-name green">Gunakan lokasi saya</span></span>
+				<span class="row-text">
+					<span class="row-name green">{locating ? 'Mencari lokasi…' : 'Gunakan lokasi saya'}</span>
+				</span>
 			</button>
 
 			<div class="cap">TERAKHIR DICARI</div>

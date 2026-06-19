@@ -102,6 +102,10 @@ body {
 .tp-tap:active {
 	transform: scale(0.985);
 }
+.tp-tap:disabled {
+	opacity: 0.55;
+	cursor: default;
+}
 
 /* ============================================================
    Keyframes (dari handoff §8/§9)

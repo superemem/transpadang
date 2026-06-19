@@ -33,19 +33,37 @@
 		planner.editing = 'to';
 		goto('/search');
 	}
-	function useMyLocation() {
-		planner.from = 'Lokasi saya · Khatib Sulaiman';
-		if (planner.to) {
-			planner.plan(planner.from, planner.to);
-			goto('/results');
-		} else {
-			planner.editing = 'to';
+	let locating = $state(false);
+
+	async function useMyLocation() {
+		if (locating) return;
+		locating = true;
+		const res = await planner.pickCurrentLocation('from');
+		locating = false;
+		if (res === 'plan') goto('/results');
+		else if (res === 'switch') goto('/search');
+		else {
+			// GPS gagal/ditolak → biar user isi asal manual
+			planner.editing = 'from';
 			goto('/search');
 		}
 	}
-	function planSaved(name: string) {
-		planner.plan(planner.from || 'Lokasi saya', name);
-		goto('/results');
+	async function planSaved(name: string) {
+		planner.to = name;
+		if (planner.from) {
+			planner.plan(planner.from, name);
+			goto('/results');
+			return;
+		}
+		if (locating) return;
+		locating = true;
+		const res = await planner.pickCurrentLocation('from'); // tujuan udah diset → bakal 'plan'
+		locating = false;
+		if (res === 'plan') goto('/results');
+		else {
+			planner.editing = 'from';
+			goto('/search');
+		}
 	}
 	function openStop(name: string) {
 		planner.openStop(name);
@@ -101,9 +119,9 @@
 
 		<span class="thin-rule"></span>
 
-		<button class="locbtn tp-tap" onclick={useMyLocation}>
+		<button class="locbtn tp-tap" onclick={useMyLocation} disabled={locating}>
 			<span class="loc-tile"><Icon name="gps" size={15} /></span>
-			<span class="loc-label">Pakai lokasi saat ini</span>
+			<span class="loc-label">{locating ? 'Mencari lokasi…' : 'Pakai lokasi saat ini'}</span>
 			<Icon name="chevron-right" size={16} stroke={1.9} />
 		</button>
 	</div>
