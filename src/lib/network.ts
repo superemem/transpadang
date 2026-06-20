@@ -56,6 +56,78 @@ export const CORRIDOR_COLORS: Record<string, string> = {
 	K6: '#DB2777'
 };
 
+// ---- Stop ordering ----
+// Data API gak diurutkan sepanjang jalur (urutan acak + ada nama dobel utk 2 arah).
+// Dedupe nama + urutkan via nearest-neighbor, tapi cuma pakai NN kalau jalurnya jadi
+// lebih pendek (koridor yg datanya udah rapi spt K1 jangan dirusak).
+function hav(lat1: number, lon1: number, lat2: number, lon2: number): number {
+	const R = 6371;
+	const dLat = ((lat2 - lat1) * Math.PI) / 180;
+	const dLon = ((lon2 - lon1) * Math.PI) / 180;
+	const a =
+		Math.sin(dLat / 2) ** 2 +
+		Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+	return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+function pathLen(stops: Stop[]): number {
+	let t = 0;
+	for (let i = 1; i < stops.length; i++) {
+		t += hav(stops[i - 1].lat, stops[i - 1].lon, stops[i].lat, stops[i].lon);
+	}
+	return t;
+}
+function dedupeByName(stops: Stop[]): Stop[] {
+	const seen = new Set<string>();
+	const out: Stop[] = [];
+	for (const s of stops) {
+		const k = s.name.toLowerCase();
+		if (seen.has(k)) continue;
+		seen.add(k);
+		out.push(s);
+	}
+	return out;
+}
+function nnOrder(stops: Stop[]): Stop[] {
+	// mulai dari salah satu ujung (pasangan halte terjauh)
+	let start = 0;
+	let far = -1;
+	for (let i = 0; i < stops.length; i++) {
+		for (let j = i + 1; j < stops.length; j++) {
+			const d = hav(stops[i].lat, stops[i].lon, stops[j].lat, stops[j].lon);
+			if (d > far) {
+				far = d;
+				start = i;
+			}
+		}
+	}
+	const used = new Array(stops.length).fill(false);
+	const order: Stop[] = [stops[start]];
+	used[start] = true;
+	let cur = start;
+	for (let k = 1; k < stops.length; k++) {
+		let best = -1;
+		let bd = Infinity;
+		for (let i = 0; i < stops.length; i++) {
+			if (used[i]) continue;
+			const d = hav(stops[cur].lat, stops[cur].lon, stops[i].lat, stops[i].lon);
+			if (d < bd) {
+				bd = d;
+				best = i;
+			}
+		}
+		order.push(stops[best]);
+		used[best] = true;
+		cur = best;
+	}
+	return order;
+}
+function orderStops(raw: Stop[]): Stop[] {
+	const dd = dedupeByName(raw);
+	if (dd.length < 4) return dd;
+	const nn = nnOrder(dd);
+	return pathLen(nn) < pathLen(dd) ? nn : dd;
+}
+
 /** Bangun Network dari raw halte per koridor (REST `bus_stop`). */
 export function buildNetwork(rawByKoridor: Record<string, RawStop[]>): Network {
 	const corridors: Corridor[] = [];
@@ -65,7 +137,7 @@ export function buildNetwork(rawByKoridor: Record<string, RawStop[]>): Network {
 		const raw = rawByKoridor[id];
 		if (!raw || !raw.length) continue;
 
-		const stops: Stop[] = raw
+		const parsed: Stop[] = raw
 			.map((s) => ({
 				id: s.id,
 				name: (s.name ?? '').trim(), // gotcha: nama halte kadang ada leading space
@@ -75,6 +147,8 @@ export function buildNetwork(rawByKoridor: Record<string, RawStop[]>): Network {
 			}))
 			.filter((s) => s.name && Number.isFinite(s.lat) && Number.isFinite(s.lon));
 
+		// dedupe + urutkan halte sepanjang jalur (data API gak route-ordered)
+		const stops = orderStops(parsed);
 		const route = (raw[0]?.route ?? '').trim();
 		corridors.push({ id, route, color: CORRIDOR_COLORS[id] ?? '#0E9F6E', stops });
 
