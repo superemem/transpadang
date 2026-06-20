@@ -142,8 +142,8 @@
 										</div>
 										<OccupancyDots occ={l.occ} layout="col" />
 									</div>
-									<button class="exp tp-tap" onclick={() => planner.toggleLeg(i)}>
-										<span>Naik {l.stopsCount} halte · ~{l.rideMin} mnt</span>
+									<button type="button" class="exp tp-tap" onclick={() => planner.toggleLeg(i)}>
+										<span>Melewati {l.stopsCount} halte · ~{l.rideMin} mnt</span>
 										<span class="chev" class:open={planner.expanded[i]}><Icon name="chevron-down" size={16} stroke={2} /></span>
 									</button>
 									{#if planner.expanded[i]}
@@ -580,9 +580,11 @@
 		bottom: 0;
 		padding: 14px 18px 18px;
 		background: linear-gradient(to top, var(--canvas) 72%, transparent);
+		pointer-events: none; /* biar area fade gak nangkep klik konten di belakangnya */
 	}
 	.cta {
 		width: 100%;
+		pointer-events: auto;
 		background: var(--t-900);
 		color: #fff;
 		font-size: 15px;
