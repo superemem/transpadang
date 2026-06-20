@@ -148,7 +148,7 @@
 									</button>
 									{#if planner.expanded[i]}
 										<div class="mids">
-											{#each l.midStops as m (m)}
+											{#each l.midStops as m, mi (m + '·' + mi)}
 												<div class="mid"><span class="mid-dot"></span> {m}</div>
 											{/each}
 											<div class="mid alight"><span class="mid-dot"></span> Turun: {l.alightStop}</div>

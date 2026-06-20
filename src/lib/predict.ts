@@ -61,7 +61,15 @@ export function boardFor(net: Network, busList: LiveBus[], stopName: string): Ar
 			}
 		}
 	}
-	return out.sort((a, b) => a.etaSec - b.etaSec);
+	// satu bus fisik bisa jadi 'tersoon' utk 2 arah/iterasi → bikin entri dobel dgn id sama.
+	// Dedupe by id (simpan ETA tercepat); kalau gak, daftar kedatangan punya bus dobel →
+	// key duplikat di {#each (a.bus)} → Svelte throw (each_key_duplicate) → render rusak.
+	const byBus = new Map<string, Arrival>();
+	for (const a of out) {
+		const ex = byBus.get(a.bus);
+		if (!ex || a.etaSec < ex.etaSec) byBus.set(a.bus, a);
+	}
+	return [...byBus.values()].sort((a, b) => a.etaSec - b.etaSec);
 }
 
 export interface NearbyStop {
