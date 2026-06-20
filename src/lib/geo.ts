@@ -12,11 +12,16 @@ export function haversine(lat1: number, lon1: number, lat2: number, lon2: number
 	return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-/** Jarak kumulatif (km) sepanjang urutan halte, dari index 0. */
+// cap jarak per-segmen: koordinat halte yang error / gap besar jangan nge-inflate
+// estimasi waktu tempuh (halte BRT urban jarang >2 km antar halte berurutan).
+const SEG_CAP_KM = 2;
+
+/** Jarak kumulatif (km) sepanjang urutan halte, dari index 0 (per-segmen di-cap). */
 export function cumulativeDist(stops: Stop[]): number[] {
 	const cum = [0];
 	for (let i = 1; i < stops.length; i++) {
-		cum[i] = cum[i - 1] + haversine(stops[i - 1].lat, stops[i - 1].lon, stops[i].lat, stops[i].lon);
+		const d = haversine(stops[i - 1].lat, stops[i - 1].lon, stops[i].lat, stops[i].lon);
+		cum[i] = cum[i - 1] + Math.min(d, SEG_CAP_KM);
 	}
 	return cum;
 }

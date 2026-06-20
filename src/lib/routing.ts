@@ -5,9 +5,10 @@
 // (direct/1x transfer) → jalan kaki. REAL: halte, koridor, urutan, jarak, transit,
 // jalan kaki. SIMULASI: occupancy, kode bus, waktu tunggu.
 import type { Network, Corridor, Stop } from '$lib/network';
+import { CORRIDOR_IDS } from '$lib/network';
 import { cumulativeDist, haversine } from '$lib/geo';
 
-const SPEED_KMH = 20; // estimasi kecepatan bus termasuk berhenti
+const SPEED_KMH = 24; // estimasi kecepatan tempuh bus (haversine straight-line, ~setara 18km/h di jalan)
 const WALK_M_PER_MIN = 80; // kecepatan jalan kaki
 const NEAR_K = 6; // jumlah halte kandidat per ujung (biar nemu koridor yg pas, bukan cuma yg paling deket)
 
@@ -123,9 +124,19 @@ interface Cand {
 	transfers: number;
 }
 
-/** Kandidat rute (direct + 1x transfer) antara dua halte. */
-function genCands(net: Network, oName: string, dName: string, oLines: string[], dLines: string[]): Cand[] {
-	const cands: Cand[] = [];
+type SharedFn = (a: string, b: string) => string[];
+
+/** Kandidat rute (0/1/2 transfer) antara dua halte. 2x transit cuma kalau yg ≤1x gak ada. */
+function routeBetween(
+	net: Network,
+	oName: string,
+	oLines: string[],
+	dName: string,
+	dLines: string[],
+	shared: SharedFn
+): Cand[] {
+	const out: Cand[] = [];
+
 	// direct
 	for (const cid of oLines) {
 		if (!dLines.includes(cid)) continue;
@@ -135,8 +146,9 @@ function genCands(net: Network, oName: string, dName: string, oLines: string[], 
 		const j = idxOn(c, dName);
 		if (i < 0 || j < 0 || i === j) continue;
 		const leg = busLeg(c, i, j, 4);
-		cands.push({ busLegs: [leg], mid: [leg], rideTotal: leg.rideMin, transfers: 0 });
+		out.push({ busLegs: [leg], mid: [leg], rideTotal: leg.rideMin, transfers: 0 });
 	}
+
 	// 1x transfer
 	for (const cf of oLines) {
 		for (const ct of dLines) {
@@ -144,27 +156,72 @@ function genCands(net: Network, oName: string, dName: string, oLines: string[], 
 			const cF = corr(net, cf);
 			const cT = corr(net, ct);
 			if (!cF || !cT) continue;
-			const namesT = new Set(cT.stops.map((s) => s.name));
+			const oi = idxOn(cF, oName);
+			const dj = idxOn(cT, dName);
+			if (oi < 0 || dj < 0) continue;
 			let best: Cand | null = null;
-			for (const s of cF.stops) {
-				if (!namesT.has(s.name)) continue;
-				const i = idxOn(cF, oName);
-				const x1 = idxOn(cF, s.name);
-				const x2 = idxOn(cT, s.name);
-				const j = idxOn(cT, dName);
-				if (i < 0 || x1 < 0 || x2 < 0 || j < 0 || i === x1 || x2 === j) continue;
-				const l1 = busLeg(cF, i, x1, 4);
-				const l2 = busLeg(cT, x2, j, 3);
+			for (const t of shared(cf, ct)) {
+				const x1 = idxOn(cF, t);
+				const x2 = idxOn(cT, t);
+				if (x1 < 0 || x2 < 0 || x1 === oi || x2 === dj) continue;
+				const l1 = busLeg(cF, oi, x1, 4);
+				const l2 = busLeg(cT, x2, dj, 3);
 				const total = l1.rideMin + l2.rideMin;
 				if (!best || total < best.rideTotal) {
-					const transfer: TransferLeg = { type: 'transfer', min: 2, atStop: s.name, note: `Pindah ke ${ct}` };
-					best = { busLegs: [l1, l2], mid: [l1, transfer, l2], rideTotal: total, transfers: 1 };
+					const tr: TransferLeg = { type: 'transfer', min: 2, atStop: t, note: `Pindah ke ${ct}` };
+					best = { busLegs: [l1, l2], mid: [l1, tr, l2], rideTotal: total, transfers: 1 };
 				}
 			}
-			if (best) cands.push(best);
+			if (best) out.push(best);
 		}
 	}
-	return cands;
+
+	if (out.length) return out; // udah ada rute ≤1x transit
+
+	// 2x transfer (fallback: lewat koridor perantara)
+	for (const cf of oLines) {
+		for (const ct of dLines) {
+			if (cf === ct) continue;
+			const cF = corr(net, cf);
+			const cT = corr(net, ct);
+			if (!cF || !cT) continue;
+			const oi = idxOn(cF, oName);
+			const dj = idxOn(cT, dName);
+			if (oi < 0 || dj < 0) continue;
+			let best: Cand | null = null;
+			for (const cm of CORRIDOR_IDS) {
+				if (cm === cf || cm === ct) continue;
+				const cM = corr(net, cm);
+				if (!cM) continue;
+				const s1 = shared(cf, cm);
+				const s2 = shared(cm, ct);
+				if (!s1.length || !s2.length) continue;
+				for (const t1 of s1) {
+					const a1 = idxOn(cF, t1);
+					const m1 = idxOn(cM, t1);
+					if (a1 < 0 || m1 < 0 || a1 === oi) continue;
+					for (const t2 of s2) {
+						if (t2 === t1) continue;
+						const m2 = idxOn(cM, t2);
+						const b2 = idxOn(cT, t2);
+						if (m2 < 0 || b2 < 0 || m2 === m1 || b2 === dj) continue;
+						const l1 = busLeg(cF, oi, a1, 4);
+						const l2 = busLeg(cM, m1, m2, 3);
+						const l3 = busLeg(cT, b2, dj, 3);
+						const total = l1.rideMin + l2.rideMin + l3.rideMin;
+						if (!best || total < best.rideTotal) {
+							const tr1: TransferLeg = { type: 'transfer', min: 2, atStop: t1, note: `Pindah ke ${cm}` };
+							const tr2: TransferLeg = { type: 'transfer', min: 2, atStop: t2, note: `Pindah ke ${ct}` };
+							best = { busLegs: [l1, l2, l3], mid: [l1, tr1, l2, tr2, l3], rideTotal: total, transfers: 2 };
+						}
+					}
+				}
+			}
+			if (best) out.push(best);
+		}
+	}
+
+	return out;
 }
 
 export function planTripsReal(net: Network, from: Endpoint, to: Endpoint): TripOption[] {
@@ -181,6 +238,23 @@ export function planTripsReal(net: Network, from: Endpoint, to: Endpoint): TripO
 	}
 	const scored: Scored[] = [];
 
+	// cache shared-stops antar koridor (titik transit)
+	const sCache = new Map<string, string[]>();
+	const shared = (a: string, b: string): string[] => {
+		const key = a < b ? a + b : b + a;
+		const hit = sCache.get(key);
+		if (hit) return hit;
+		const cA = corr(net, a);
+		const cB = corr(net, b);
+		let v: string[] = [];
+		if (cA && cB) {
+			const setB = new Set(cB.stops.map((s) => s.name));
+			v = [...new Set(cA.stops.map((s) => s.name).filter((n) => setB.has(n)))];
+		}
+		sCache.set(key, v);
+		return v;
+	};
+
 	for (const o of oCands) {
 		const oP = net.places.find((p) => p.name === o.stop.name);
 		if (!oP) continue;
@@ -190,7 +264,7 @@ export function planTripsReal(net: Network, from: Endpoint, to: Endpoint): TripO
 			if (!dP) continue;
 			const walkInMin = Math.max(1, Math.round(o.distM / WALK_M_PER_MIN));
 			const walkOutMin = Math.max(1, Math.round(d.distM / WALK_M_PER_MIN));
-			for (const c of genCands(net, o.stop.name, d.stop.name, oP.lines, dP.lines)) {
+			for (const c of routeBetween(net, o.stop.name, oP.lines, d.stop.name, dP.lines, shared)) {
 				scored.push({
 					c,
 					oStop: o.stop,
