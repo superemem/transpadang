@@ -91,7 +91,7 @@
 		display: flex;
 		align-items: center;
 		gap: 12px;
-		padding: 14px 16px 12px;
+		padding: calc(14px + env(safe-area-inset-top)) 16px 12px;
 		background: #fff;
 		border-bottom: 1px solid var(--b-2);
 	}
@@ -182,7 +182,7 @@
 	.bd {
 		flex: 1;
 		overflow-y: auto;
-		padding: 8px 16px 24px;
+		padding: 8px 16px calc(24px + env(safe-area-inset-bottom));
 	}
 	.label {
 		font-size: 11px;

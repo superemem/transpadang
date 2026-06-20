@@ -192,7 +192,7 @@
 	.body {
 		flex: 1;
 		overflow-y: auto;
-		padding: 0 20px 28px;
+		padding: env(safe-area-inset-top) 20px calc(28px + env(safe-area-inset-bottom));
 	}
 
 	/* header */
@@ -484,6 +484,10 @@
 		margin-bottom: 11px;
 		box-shadow: 0 6px 18px -14px rgba(19, 26, 23, 0.3);
 		cursor: pointer;
+	}
+	.stop-card:hover {
+		border-color: var(--b-6);
+		box-shadow: 0 10px 24px -16px rgba(19, 26, 23, 0.4);
 	}
 	.stop-head {
 		display: flex;

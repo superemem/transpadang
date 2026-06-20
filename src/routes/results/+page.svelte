@@ -44,7 +44,7 @@
 						</span>
 						<span class="depart">{departHint(o.departIn)}</span>
 					</div>
-					<span class="total tpnum">{o.totalMin} mnt</span>
+					<span class="total"><span class="tpnum">{o.totalMin}</span><span class="unit">mnt</span></span>
 				</div>
 
 				<div class="ribbon">
@@ -86,7 +86,7 @@
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		padding: 14px 16px 12px;
+		padding: calc(14px + env(safe-area-inset-top)) 16px 12px;
 		background: #fff;
 		border-bottom: 1px solid var(--b-2);
 	}
@@ -134,7 +134,7 @@
 	.bd {
 		flex: 1;
 		overflow-y: auto;
-		padding: 14px 16px 24px;
+		padding: 14px 16px calc(24px + env(safe-area-inset-bottom));
 	}
 	.card {
 		width: 100%;
@@ -150,6 +150,13 @@
 	}
 	.card.rec {
 		border-color: var(--b-rec);
+	}
+	.card:hover {
+		border-color: var(--b-6);
+		box-shadow: 0 12px 26px -16px rgba(19, 26, 23, 0.5);
+	}
+	.card.rec:hover {
+		border-color: var(--green);
 	}
 	.top {
 		display: flex;
@@ -182,10 +189,18 @@
 		color: var(--t-500);
 	}
 	.total {
+		display: inline-flex;
+		align-items: baseline;
+		gap: 3px;
 		font-size: 21px;
 		font-weight: 700;
 		color: var(--t-900);
 		flex: 0 0 auto;
+	}
+	.total .unit {
+		font-size: 12.5px;
+		font-weight: 700;
+		color: var(--t-500);
 	}
 
 	.ribbon {

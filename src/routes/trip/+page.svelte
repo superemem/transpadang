@@ -40,7 +40,7 @@
 {#if !opt}
 	<div class="screen empty-screen">
 		<p>Belum ada rute dipilih.</p>
-		<button class="cta" onclick={() => goto('/')}>Ke beranda</button>
+		<button class="cta tp-tap" onclick={() => goto('/')}>Ke beranda</button>
 	</div>
 {:else}
 	<div class="screen">
@@ -174,7 +174,7 @@
 		</div>
 
 		<div class="cta-wrap">
-			<button class="cta" onclick={() => (planner.started = !planner.started)}>
+			<button class="cta tp-tap" onclick={() => (planner.started = !planner.started)}>
 				{planner.started ? 'Sedang dalam perjalanan…' : 'Mulai perjalanan'}
 			</button>
 		</div>
@@ -199,7 +199,7 @@
 		display: flex;
 		align-items: center;
 		gap: 12px;
-		padding: 14px 16px 12px;
+		padding: calc(14px + env(safe-area-inset-top)) 16px 12px;
 		background: #fff;
 		border-bottom: 1px solid var(--b-2);
 		flex: 0 0 auto;
@@ -229,7 +229,7 @@
 	.bd {
 		flex: 1;
 		overflow-y: auto;
-		padding: 16px 16px 110px;
+		padding: 16px 16px calc(110px + env(safe-area-inset-bottom));
 	}
 
 	/* schematic map */
@@ -578,7 +578,7 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		padding: 14px 18px 18px;
+		padding: 14px 18px calc(18px + env(safe-area-inset-bottom));
 		background: linear-gradient(to top, var(--canvas) 72%, transparent);
 		pointer-events: none; /* biar area fade gak nangkep klik konten di belakangnya */
 	}
